@@ -7,10 +7,10 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/0xAX/notificator"
 	"github.com/jszwec/csvutil"
 )
 
@@ -19,7 +19,7 @@ type stringFlag struct {
 	value string
 }
 
-type hour struct {
+type workDay struct {
 	Hour1 string `csv:"hour1"`
 	Hour2 string `csv:"hour2"`
 	Hour3 string `csv:"hour3"`
@@ -30,7 +30,16 @@ type hour struct {
 	Hour8 string `csv:"hour8"`
 }
 
+var notify *notificator.Notificator
+
 func main() {
+	// init notificator
+	notify = notificator.New(notificator.Options{
+		DefaultIcon: "icon/default.png",
+		AppName:     "Puncher",
+	})
+
+	// parse flags
 	var inVal stringFlag
 	flag.Var(&inVal, "in", "help message for in")
 	shouldPrint := flag.Bool("print", false, "help message for print")
@@ -39,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	// load hours csv
-	hours := loadHoursFile()
+	days := loadHoursFile()
 
 	if *showNext {
 		fmt.Printf("next punch should be at:\n")
@@ -48,17 +57,18 @@ func main() {
 
 		c := askForConfirmation("Place notification for next punch?")
 		if c {
-			commandString := `sleep 4; osascript -e 'display notification "Punch in now" with title "PUNCH" sound name "Glass"'`
-			exec.Command("sh", "-c", commandString).Start()
+			notify.Push("title", "text", "/home/user/icon.png", notificator.UR_CRITICAL)
+			// commandString := `sleep 4; osascript -e 'display notification "Punch in now" with title "PUNCH" sound name "Glass"'`
+			// exec.Command("sh", "-c", commandString).Start()
 		}
 	}
 
 	if *shouldUndo {
 		c := askForConfirmation("Do you really want to undo the last punch?")
 		if c {
-			undoLastPunch(hours)
+			undoLastPunch(days)
 			// write out
-			writeHoursFile(hours)
+			writeHoursFile(days)
 		}
 	}
 
@@ -69,14 +79,14 @@ func main() {
 			fmt.Printf("--punching in at %q\n", inVal.value)
 		}
 
-		setNextPunch(hours, inVal.value)
+		setNextPunch(days, inVal.value)
 
 		// write out
-		writeHoursFile(hours)
+		writeHoursFile(days)
 	}
 
 	if *shouldPrint {
-		printHoursTable(hours)
+		printHoursTable(days)
 	}
 }
 
@@ -90,12 +100,12 @@ func (sf *stringFlag) String() string {
 	return sf.value
 }
 
-func printHoursTable(hours []hour) {
+func printHoursTable(days []workDay) {
 	fmt.Printf("-------------------------------------------------------------------------------\n")
 	fmt.Printf("| dia | hora 1 | hora 2 | hora 3 | hora 4 | hora 5 | hora 6 | hora 7 | hora 8 |\n")
 	fmt.Printf("|-----|--------|--------|--------|--------|--------|--------|--------|--------|\n")
 
-	for i, day := range hours {
+	for i, day := range days {
 		fmt.Printf("| %02d  |", i+1)
 		fmt.Printf(" %+v  | %+v  | %+v  | %+v  | %+v  | %+v  | %+v  | %+v  |",
 			formatHour(day.Hour1), formatHour(day.Hour2), formatHour(day.Hour3),
@@ -115,79 +125,94 @@ func formatHour(hour string) string {
 	}
 }
 
-func undoLastPunch(hours []hour) {
-	t := time.Now()
-	d := t.Day()
+func getCurrentPunch(days []workDay) *string {
+	d := time.Now().Day()
+	var punch *string
 
 	switch nilString := ""; nilString {
-	case hours[d-1].Hour2:
-		hours[d-1].Hour1 = ""
-	case hours[d-1].Hour3:
-		hours[d-1].Hour2 = ""
-	case hours[d-1].Hour4:
-		hours[d-1].Hour3 = ""
-	case hours[d-1].Hour5:
-		hours[d-1].Hour4 = ""
-	case hours[d-1].Hour6:
-		hours[d-1].Hour5 = ""
-	case hours[d-1].Hour7:
-		hours[d-1].Hour6 = ""
-	case hours[d-1].Hour8:
-		hours[d-1].Hour7 = ""
+	case days[d-1].Hour2:
+		punch = &days[d-1].Hour1
+	case days[d-1].Hour3:
+		punch = &days[d-1].Hour2
+	case days[d-1].Hour4:
+		punch = &days[d-1].Hour3
+	case days[d-1].Hour5:
+		punch = &days[d-1].Hour4
+	case days[d-1].Hour6:
+		punch = &days[d-1].Hour5
+	case days[d-1].Hour7:
+		punch = &days[d-1].Hour6
+	case days[d-1].Hour8:
+		punch = &days[d-1].Hour7
 	default:
-		// hours[d+1].Hour8 = newHour
+		punch = &days[d-1].Hour8
 	}
+
+	return punch
 }
 
-func setNextPunch(hours []hour, hour string) {
+func getNextPunch(days []workDay) *string {
+	d := time.Now().Day()
+	var punch *string
+
+	switch nilString := ""; nilString {
+	case days[d-1].Hour1:
+		punch = &days[d-1].Hour1
+	case days[d-1].Hour2:
+		punch = &days[d-1].Hour2
+	case days[d-1].Hour3:
+		punch = &days[d-1].Hour3
+	case days[d-1].Hour4:
+		punch = &days[d-1].Hour4
+	case days[d-1].Hour5:
+		punch = &days[d-1].Hour5
+	case days[d-1].Hour6:
+		punch = &days[d-1].Hour6
+	case days[d-1].Hour7:
+		punch = &days[d-1].Hour7
+	case days[d-1].Hour8:
+		punch = &days[d-1].Hour8
+	default:
+		punch = &days[d-1].Hour8
+	}
+
+	return punch
+}
+
+func undoLastPunch(days []workDay) {
+	punch := getCurrentPunch(days)
+	*punch = ""
+	fmt.Printf("%+v\n", punch)
+}
+
+func setNextPunch(days []workDay, hour string) {
 	t := time.Now()
-	d := t.Day()
 	var newHour = hour
 
 	if hour == "now" {
 		newHour = t.Format("15:04")
 	}
 
-	fmt.Printf("%v\n", newHour)
-
-	switch nilString := ""; nilString {
-	case hours[d-1].Hour1:
-		hours[d-1].Hour1 = newHour
-	case hours[d-1].Hour2:
-		hours[d-1].Hour2 = newHour
-	case hours[d-1].Hour3:
-		hours[d-1].Hour3 = newHour
-	case hours[d-1].Hour4:
-		hours[d-1].Hour4 = newHour
-	case hours[d-1].Hour5:
-		hours[d-1].Hour5 = newHour
-	case hours[d-1].Hour6:
-		hours[d-1].Hour6 = newHour
-	case hours[d-1].Hour7:
-		hours[d-1].Hour7 = newHour
-	case hours[d-1].Hour8:
-		hours[d-1].Hour8 = newHour
-	default:
-		// hours[d+1].Hour8 = newHour
-	}
+	punch := getNextPunch(days)
+	*punch = newHour
 }
 
-func loadHoursFile() []hour {
+func loadHoursFile() []workDay {
 	csvInput, err := ioutil.ReadFile("hours.csv")
 	if err != nil {
 		fmt.Print(err)
 	}
 
-	var hours []hour
-	if err := csvutil.Unmarshal(csvInput, &hours); err != nil {
+	var days []workDay
+	if err := csvutil.Unmarshal(csvInput, &days); err != nil {
 		fmt.Println("error:", err)
 	}
 
-	return hours
+	return days
 }
 
-func writeHoursFile(hours []hour) {
-	b, err := csvutil.Marshal(hours)
+func writeHoursFile(days []workDay) {
+	b, err := csvutil.Marshal(days)
 	if err != nil {
 		fmt.Println("error:", err)
 	}
